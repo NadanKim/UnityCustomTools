@@ -14,8 +14,13 @@ public class ResolutionController : MonoBehaviour
 	public int RefreshCount { get; set; } = 3;
 	// 크기 조정 시 부드럽게 처리할지 여부
 	public bool SmoothRefresh { get; set; } = true;
+	// 크기 조절 모드
+	public ResizeMode Mode { get; set; } = ResizeMode.MoveWindow;
 
 	public Text m_debugText;
+	public Text m_debugWidthText;
+	public Text m_debugHeightText;
+	public Text m_debugResolutionText;
 
 	#region ENUMERATIONS
 	private enum Cursors
@@ -33,6 +38,12 @@ public class ResolutionController : MonoBehaviour
 		Changing,
 		Updating,
 	}
+
+	public enum ResizeMode
+	{
+		UnityDefault,
+		MoveWindow,
+	}
 	#endregion
 
 	#region WINAPI_DLL
@@ -43,8 +54,26 @@ public class ResolutionController : MonoBehaviour
 		public Int32 y;
 	}
 
+	[StructLayout(LayoutKind.Sequential)]
+	public struct RECT
+	{
+		public int Left;
+		public int Top;
+		public int Right;
+		public int Bottom;
+	}
+
 	private const int VK_LBUTTON = 0x01;
 	private const ushort KEY_HOLD = 0x8000;
+
+	private const uint WS_OVERLAPPED = 0x00000000;
+	private const uint WS_CAPTION = 0x00C00000;
+	private const uint WS_SYSMENU = 0x00080000;
+	private const uint WS_THICKFRAME = 0x00040000;
+	private const uint WS_MINIMIZEBOX = 0x00020000;
+	private const uint WS_MAXIMIZEBOX = 0x00010000;
+	private const uint WS_OVERLAPPEDWINDOW = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU
+		| WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
 
 	[DllImport("user32.dll")]
 	private static extern IntPtr GetCursor();
@@ -54,6 +83,18 @@ public class ResolutionController : MonoBehaviour
 
 	[DllImport("user32.dll")]
 	private static extern ushort GetAsyncKeyState(ushort vKey);
+
+	[DllImport("user32.dll")]
+	private static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+
+	[DllImport("user32.dll")]
+	private static extern bool GetWindowRect(IntPtr hwnd, out RECT lpRect);
+
+	[DllImport("user32.dll")]
+	private static extern bool AdjustWindowRect(ref RECT lpRect, uint dwStyle, bool bMenu);
+
+	[DllImport("user32.dll")]
+	private static extern bool MoveWindow(IntPtr hwnd, int x, int y, int nWidth, int nHeight, bool bRepaint);
 	#endregion
 
 	#region WINAPI_VARIABLES
@@ -69,6 +110,9 @@ public class ResolutionController : MonoBehaviour
 	private int m_screenSizeY;
 
 	private UpdateState m_updateState;
+
+	private IntPtr m_hwnd;
+	private RECT m_wndRect;
 
 	private void Start()
 	{
@@ -90,9 +134,11 @@ public class ResolutionController : MonoBehaviour
 		CursorNWSE = LoadCursor(IntPtr.Zero, (int)Cursors.IDC_SIZENWSE);
 		CursorWE = LoadCursor(IntPtr.Zero, (int)Cursors.IDC_SIZEWE);
 
+		m_hwnd = FindWindow(null, "FixedResolution_DetectByCursorIcon");
+
 		m_updateState = UpdateState.Waiting;
 
-		m_debugText.text = $"Update State : {m_updateState}";
+		UpdateDebugText();
 	}
 
 	private void Update()
@@ -102,10 +148,11 @@ public class ResolutionController : MonoBehaviour
 		if (m_updateState == UpdateState.Waiting && IsChanging(hCursor) && IsMouseButtonClicked())
 		{
 			m_updateState = UpdateState.Changing;
-			m_debugText.text = $"Update State : {m_updateState}";
+			UpdateDebugText();
 		}
 		else if (m_updateState == UpdateState.Changing && !IsMouseButtonClicked())
 		{
+			GetWindowRect(m_hwnd, out m_wndRect);
 			StartCoroutine(SetFixedResolution());
 		}
 	}
@@ -116,7 +163,9 @@ public class ResolutionController : MonoBehaviour
 	private IEnumerator SetFixedResolution()
 	{
 		m_updateState = UpdateState.Updating;
-		m_debugText.text = $"Update State : {m_updateState}";
+
+		UpdateDebugText();
+
 		int newScreenSizeX = Screen.width;
 		int newScreenSizeY = Screen.height;
 
@@ -152,8 +201,15 @@ public class ResolutionController : MonoBehaviour
 				tempScreenSizeX = Mathf.RoundToInt(Mathf.Lerp(Screen.width, newScreenSizeX, i / (float)RefreshCount));
 				tempScreenSizeY = Mathf.RoundToInt(Mathf.Lerp(Screen.height, newScreenSizeY, i / (float)RefreshCount));
 			}
-			
-			Screen.SetResolution(tempScreenSizeX, tempScreenSizeY, false);
+
+			if (Mode == ResizeMode.UnityDefault)
+			{
+				Screen.SetResolution(tempScreenSizeX, tempScreenSizeY, false);
+			}
+			else if (Mode == ResizeMode.MoveWindow)
+			{
+				ChangeWindowSize(tempScreenSizeX, tempScreenSizeY);
+			}
 
 			yield return null;
 		}
@@ -162,7 +218,7 @@ public class ResolutionController : MonoBehaviour
 		m_screenSizeY = newScreenSizeY;
 
 		m_updateState = UpdateState.Waiting;
-		m_debugText.text = $"Update State : {m_updateState}";
+		UpdateDebugText();
 	}
 
 	private bool IsChanging(IntPtr hCursor)
@@ -177,5 +233,36 @@ public class ResolutionController : MonoBehaviour
 	private bool IsMouseButtonClicked()
 	{
 		return (GetAsyncKeyState(VK_LBUTTON) & KEY_HOLD) != 0;
+	}
+
+	/// <summary>
+	/// WinAPI를 이용해 변경된 크기를 적용한다.
+	/// </summary>
+	/// <param name="width">변경할 너비</param>
+	/// <param name="height">변경할 높이</param>
+	private void ChangeWindowSize(int width, int height)
+	{
+		m_wndRect.Right = m_wndRect.Left + width;
+		m_wndRect.Bottom = m_wndRect.Top + height;
+
+		RECT sizeRect = new RECT();
+		sizeRect.Left = 0;
+		sizeRect.Top = 0;
+		sizeRect.Right = width;
+		sizeRect.Bottom = height;
+
+		AdjustWindowRect(ref sizeRect, WS_OVERLAPPEDWINDOW, false);
+		MoveWindow(m_hwnd, m_wndRect.Left, m_wndRect.Top, sizeRect.Right - sizeRect.Left, sizeRect.Bottom - sizeRect.Top, true);
+	}
+
+	/// <summary>
+	/// 디버그용 텍스트 업데이트
+	/// </summary>
+	private void UpdateDebugText()
+	{
+		m_debugText.text = $"Update State : {m_updateState}";
+		m_debugWidthText.text = $"Width : {Screen.width}";
+		m_debugHeightText.text = $"Height : {Screen.height}";
+		m_debugResolutionText.text = $"Resolution : {(float)Screen.width / Screen.height}";
 	}
 }
