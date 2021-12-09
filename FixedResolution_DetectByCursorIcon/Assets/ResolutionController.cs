@@ -17,6 +17,11 @@ public class ResolutionController : MonoBehaviour
 	// 크기 조절 모드
 	public ResizeMode Mode { get; set; } = ResizeMode.MoveWindow;
 
+	// 화면 최소 크기
+	public int MinSize { get; set; } = 512;
+	// 화면 최대 크기
+	public int MaxSize { get; set; } = 1024;
+
 	public Text m_debugText;
 	public Text m_debugWidthText;
 	public Text m_debugHeightText;
@@ -37,6 +42,13 @@ public class ResolutionController : MonoBehaviour
 		Waiting,
 		Changing,
 		Updating,
+	}
+
+	private enum ResizeOption
+	{
+		Horizontal,
+		Vertical,
+		Diagonal,
 	}
 
 	public enum ResizeMode
@@ -166,40 +178,20 @@ public class ResolutionController : MonoBehaviour
 
 		UpdateDebugText();
 
-		int newScreenSizeX = Screen.width;
-		int newScreenSizeY = Screen.height;
-
-		// 대각선으로 비율을 바꾼 경우 적절한 방향을 선택해 비율을 맞춘다.
-		if (newScreenSizeX != m_screenSizeX && newScreenSizeY != m_screenSizeY)
-		{
-			if (Mathf.Abs(newScreenSizeX - m_screenSizeX) > Mathf.Abs(newScreenSizeY - m_screenSizeY))
-			{
-				newScreenSizeY = Mathf.FloorToInt(newScreenSizeX / m_aspectRatio);
-			}
-			else
-			{
-				newScreenSizeX = Mathf.FloorToInt(newScreenSizeY * m_aspectRatio);
-			}
-		}
-		else if (newScreenSizeX != m_screenSizeX)
-		{
-			newScreenSizeY = Mathf.FloorToInt(newScreenSizeX / m_aspectRatio);
-		}
-		else
-		{
-			newScreenSizeX = Mathf.FloorToInt(newScreenSizeY * m_aspectRatio);
-		}
+		int width = Mathf.Clamp(Screen.width, MinSize, MaxSize);
+		int height = Mathf.Clamp(Screen.height, MinSize, MaxSize);
+		GetAdjustedSize(ref width, ref height);
 
 		// 주어진 반복 횟수만큼 화면 비율을 조정한다.
 		for (int i = 1; i <= RefreshCount; i++)
 		{
-			int tempScreenSizeX = newScreenSizeX;
-			int tempScreenSizeY = newScreenSizeY;
+			int tempScreenSizeX = width;
+			int tempScreenSizeY = height;
 
 			if (SmoothRefresh)
 			{
-				tempScreenSizeX = Mathf.RoundToInt(Mathf.Lerp(Screen.width, newScreenSizeX, i / (float)RefreshCount));
-				tempScreenSizeY = Mathf.RoundToInt(Mathf.Lerp(Screen.height, newScreenSizeY, i / (float)RefreshCount));
+				tempScreenSizeX = Mathf.RoundToInt(Mathf.Lerp(Screen.width, width, i / (float)RefreshCount));
+				tempScreenSizeY = Mathf.RoundToInt(Mathf.Lerp(Screen.height, height, i / (float)RefreshCount));
 			}
 
 			if (Mode == ResizeMode.UnityDefault)
@@ -214,11 +206,75 @@ public class ResolutionController : MonoBehaviour
 			yield return null;
 		}
 
-		m_screenSizeX = newScreenSizeX;
-		m_screenSizeY = newScreenSizeY;
+		m_screenSizeX = width;
+		m_screenSizeY = height;
 
 		m_updateState = UpdateState.Waiting;
 		UpdateDebugText();
+	}
+
+	/// <summary>
+	/// 주어진 크기를 지정된 비율에 맞게 수정하여 반환한다.
+	/// </summary>
+	/// <param name="width">너비</param>
+	/// <param name="height">높이</param>
+	private void GetAdjustedSize(ref int width, ref int height)
+	{
+		// 대각선으로 비율을 바꾼 경우 적절한 방향을 선택해 비율을 맞춘다.
+		if (width != m_screenSizeX && height != m_screenSizeY)
+		{
+			GetAdjustedSize(ref width, ref height, ResizeOption.Diagonal);
+		}
+		else if (width != m_screenSizeX)
+		{
+			GetAdjustedSize(ref width, ref height, ResizeOption.Vertical);
+		}
+		else
+		{
+			GetAdjustedSize(ref width, ref height, ResizeOption.Horizontal);
+		}
+
+		// 바꾼 값이 최소, 최대 크기를 벗어나는 경우 다시 조정한다.
+		if (width < MinSize || MaxSize < width)
+		{
+			width = width < MinSize ? MinSize : MaxSize;
+			GetAdjustedSize(ref width, ref height, ResizeOption.Vertical);
+		}
+		if (height < MinSize || MaxSize < height)
+		{
+			height = height < MinSize ? MinSize : MaxSize;
+			GetAdjustedSize(ref width, ref height, ResizeOption.Horizontal);
+		}
+	}
+
+	/// <summary>
+	/// 적절한 방향을 선택해 크기 조절하기 위한 함수
+	/// </summary>
+	/// <param name="width">너비</param>
+	/// <param name="height">높이</param>
+	/// <param name="resizeOption">크기 변경 옵션</param>
+	private void GetAdjustedSize(ref int width, ref int height, ResizeOption resizeOption)
+	{
+		// 대각선으로 비율을 바꾼 경우 적절한 방향을 선택해 비율을 맞춘다.
+		if (resizeOption == ResizeOption.Diagonal)
+		{
+			if (Mathf.Abs(width - m_screenSizeX) > Mathf.Abs(height - m_screenSizeY))
+			{
+				height = Mathf.FloorToInt(width / m_aspectRatio);
+			}
+			else
+			{
+				width = Mathf.FloorToInt(height * m_aspectRatio);
+			}
+		}
+		else if (resizeOption == ResizeOption.Vertical)
+		{
+			height = Mathf.FloorToInt(width / m_aspectRatio);
+		}
+		else
+		{
+			width = Mathf.FloorToInt(height * m_aspectRatio);
+		}
 	}
 
 	private bool IsChanging(IntPtr hCursor)
