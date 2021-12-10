@@ -103,6 +103,9 @@ public class ResolutionController : MonoBehaviour
 	private static extern bool GetWindowRect(IntPtr hwnd, out RECT lpRect);
 
 	[DllImport("user32.dll")]
+	private static extern bool GetClientRect(IntPtr hWnd, ref RECT lpRect);
+
+	[DllImport("user32.dll")]
 	private static extern bool AdjustWindowRect(ref RECT lpRect, uint dwStyle, bool bMenu);
 
 	[DllImport("user32.dll")]
@@ -121,6 +124,8 @@ public class ResolutionController : MonoBehaviour
 	private int m_screenSizeX;
 	private int m_screenSizeY;
 
+	private bool m_fullscreen;
+
 	private UpdateState m_updateState;
 
 	private IntPtr m_hwnd;
@@ -132,6 +137,8 @@ public class ResolutionController : MonoBehaviour
 
 		m_screenSizeX = Screen.width;
 		m_screenSizeY = Screen.height;
+
+		m_fullscreen = Screen.fullScreen;
 
 		Initialize();
 	}
@@ -147,15 +154,36 @@ public class ResolutionController : MonoBehaviour
 		CursorWE = LoadCursor(IntPtr.Zero, (int)Cursors.IDC_SIZEWE);
 
 		m_hwnd = FindWindow(null, "FixedResolution_DetectByCursorIcon");
+		GetWindowRect(m_hwnd, out m_wndRect);
 
 		m_updateState = UpdateState.Waiting;
 
 		UpdateDebugText();
+
+		StartCoroutine(SetFixedResolution());
 	}
 
 	private void Update()
 	{
 		IntPtr hCursor = GetCursor();
+
+		if (m_fullscreen != Screen.fullScreen)
+		{
+			m_fullscreen = Screen.fullScreen;
+
+			if (m_fullscreen)
+			{
+				int width = Display.main.systemWidth;
+				int height = Display.main.systemHeight;
+				GetAdjustedSize(ref width, ref height, ResizeOption.Horizontal);
+
+				Screen.SetResolution(width, height, true);
+			}
+			else
+			{
+				Screen.SetResolution(m_screenSizeX, m_screenSizeY, false);
+			}
+		}
 
 		if (m_updateState == UpdateState.Waiting && IsChanging(hCursor) && IsMouseButtonClicked())
 		{
