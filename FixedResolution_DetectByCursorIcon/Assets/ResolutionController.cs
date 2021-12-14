@@ -7,9 +7,9 @@ using UnityEngine.UI;
 public class ResolutionController : MonoBehaviour
 {
 	// 가로 고정 비율
-	public float AspectX { get; set; } = 16;
+	public float AspectX { get; set; } = 9;
 	// 세로 고정 비율
-	public float AspectY { get; set; } = 9;
+	public float AspectY { get; set; } = 16;
 	// 화면 크기 조정 할 횟수
 	public int RefreshCount { get; set; } = 3;
 	// 크기 조정 시 부드럽게 처리할지 여부
@@ -103,7 +103,7 @@ public class ResolutionController : MonoBehaviour
 	private static extern bool GetWindowRect(IntPtr hwnd, out RECT lpRect);
 
 	[DllImport("user32.dll")]
-	private static extern bool GetClientRect(IntPtr hWnd, ref RECT lpRect);
+	private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
 
 	[DllImport("user32.dll")]
 	private static extern bool AdjustWindowRect(ref RECT lpRect, uint dwStyle, bool bMenu);
@@ -131,6 +131,19 @@ public class ResolutionController : MonoBehaviour
 	private IntPtr m_hwnd;
 	private RECT m_wndRect;
 
+	private int m_maximizedSizeX;
+	private int m_maximizedSizeY;
+
+	private bool m_maximized;
+
+	private bool Maximized
+	{ 
+		get
+		{
+			return Screen.width >= m_maximizedSizeX || Screen.height >= m_maximizedSizeY;
+		}
+	}
+
 	private void Start()
 	{
 		m_aspectRatio = AspectX / AspectY;
@@ -156,11 +169,52 @@ public class ResolutionController : MonoBehaviour
 		m_hwnd = FindWindow(null, "FixedResolution_DetectByCursorIcon");
 		GetWindowRect(m_hwnd, out m_wndRect);
 
-		m_updateState = UpdateState.Waiting;
+		CheckMaximizedSize();
 
+		m_updateState = UpdateState.Waiting;
 		UpdateDebugText();
 
 		StartCoroutine(SetFixedResolution());
+	}
+
+	/// <summary>
+	/// 최대화 시 화면 크기를 구한다.
+	/// </summary>
+	private void CheckMaximizedSize()
+	{
+		// 윈도우 창 border 사이즈
+		RECT windowRect = new RECT();
+		RECT clientRect = new RECT();
+
+		GetWindowRect(m_hwnd, out windowRect);
+		GetClientRect(m_hwnd, out clientRect);
+
+		int windowBorderSizeX = (windowRect.Right - windowRect.Left) - (clientRect.Right - clientRect.Left);
+		int windowBorderSizeY = (windowRect.Bottom - windowRect.Top) - (clientRect.Bottom - clientRect.Top);
+
+		// 작업 표시줄 사이즈
+		RECT taskBarRect = new RECT();
+
+		IntPtr hTaskbar = FindWindow("Shell_TrayWnd", null);
+		GetWindowRect(hTaskbar, out taskBarRect);
+
+		int taskBarSizeX = Mathf.Abs(taskBarRect.Right - taskBarRect.Left);
+		int taskBarSizeY = Mathf.Abs(taskBarRect.Bottom - taskBarRect.Top);
+
+		// 작업 표시줄 위치 아래(위)인 경우
+		if (taskBarSizeX > taskBarSizeY)
+		{
+			taskBarSizeX = 0;
+		}
+		// 작업 표시줄 위치가 왼쪽(오른쪽)인 경우
+		else
+		{
+			taskBarSizeY = 0;
+		}
+
+		// 최대화 시 창 크기
+		m_maximizedSizeX = Display.main.systemWidth - windowBorderSizeX - taskBarSizeX;
+		m_maximizedSizeY = Display.main.systemHeight - windowBorderSizeY - taskBarSizeY;
 	}
 
 	private void Update()
@@ -170,6 +224,8 @@ public class ResolutionController : MonoBehaviour
 		if (m_fullscreen != Screen.fullScreen)
 		{
 			m_fullscreen = Screen.fullScreen;
+
+			StopAllCoroutines();
 
 			if (m_fullscreen)
 			{
@@ -185,6 +241,24 @@ public class ResolutionController : MonoBehaviour
 			}
 		}
 
+		if (!m_maximized && Maximized)
+		{
+			m_maximized = true;
+
+			StopAllCoroutines();
+
+			int width = Display.main.systemWidth;
+			int height = Display.main.systemHeight;
+			GetAdjustedSize(ref width, ref height, ResizeOption.Horizontal);
+
+			Screen.SetResolution(width, height, false);
+		}
+
+		if (!Maximized)
+		{
+			m_maximized = false;
+		}
+
 		if (m_updateState == UpdateState.Waiting && IsChanging(hCursor) && IsMouseButtonClicked())
 		{
 			m_updateState = UpdateState.Changing;
@@ -193,6 +267,8 @@ public class ResolutionController : MonoBehaviour
 		else if (m_updateState == UpdateState.Changing && !IsMouseButtonClicked())
 		{
 			GetWindowRect(m_hwnd, out m_wndRect);
+
+			StopAllCoroutines();
 			StartCoroutine(SetFixedResolution());
 		}
 	}
