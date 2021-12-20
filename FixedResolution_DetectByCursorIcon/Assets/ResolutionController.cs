@@ -87,6 +87,8 @@ public class ResolutionController : MonoBehaviour
 	private const uint WS_OVERLAPPEDWINDOW = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU
 		| WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
 
+	private const uint SW_RESTORE = 0x09;
+
 	[DllImport("user32.dll")]
 	private static extern IntPtr GetCursor();
 
@@ -110,6 +112,10 @@ public class ResolutionController : MonoBehaviour
 
 	[DllImport("user32.dll")]
 	private static extern bool MoveWindow(IntPtr hwnd, int x, int y, int nWidth, int nHeight, bool bRepaint);
+
+	[DllImport("user32.dll")]
+	[return: MarshalAs(UnmanagedType.Bool)]
+	static extern bool ShowWindow(IntPtr hwnd, int nCmdShow);
 	#endregion
 
 	#region WINAPI_VARIABLES
