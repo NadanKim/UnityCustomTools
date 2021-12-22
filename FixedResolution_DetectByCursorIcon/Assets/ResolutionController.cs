@@ -22,6 +22,8 @@ public class ResolutionController : MonoBehaviour
 	// 화면 최대 크기
 	public int MaxSize { get; set; } = 1024;
 
+	public int MaximizeMargin { get; set; } = 10;
+
 	public Text m_debugText;
 	public Text m_debugWidthText;
 	public Text m_debugHeightText;
@@ -232,6 +234,7 @@ public class ResolutionController : MonoBehaviour
 			m_fullscreen = Screen.fullScreen;
 
 			StopAllCoroutines();
+			m_updateState = UpdateState.Waiting;
 
 			if (m_fullscreen)
 			{
@@ -252,12 +255,16 @@ public class ResolutionController : MonoBehaviour
 			m_maximized = true;
 
 			StopAllCoroutines();
+			m_updateState = UpdateState.Waiting;
 
-			int width = Display.main.systemWidth;
-			int height = Display.main.systemHeight;
+			int width = m_maximizedSizeX;
+			int height = m_maximizedSizeY - MaximizeMargin;
 			GetAdjustedSize(ref width, ref height, ResizeOption.Horizontal);
 
 			Screen.SetResolution(width, height, false);
+
+			m_screenSizeX = width;
+			m_screenSizeY = height;
 		}
 
 		if (!Maximized)
